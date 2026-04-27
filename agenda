@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda Profissional - Sigilo Total</title>
+    <style>
+        :root {
+            --primary: #5E2129;
+            --bg: #B39EB5;
+            --border: #e2e8f0;
+            --blocked-bg: #fcf2f2;
+            --morning: #e6ffe6;
+            --night: #e0f2fe;
+            --text-blocked: #991b1b;
+        }
+
+        #protectedContent { display: none; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); padding: 20px; color: #1e293b; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); }
+        .tab-btn { padding: 10px 20px; cursor: pointer; border: none; background: #f1f5f9; border-radius: 8px 8px 0 0; font-weight: bold; color: #64748b; }
+        .tab-btn.active { background: var(--primary); color: white; }
+
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        h2 { color: var(--primary); margin: 0; font-size: 1.4rem; }
+
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid var(--border); padding: 6px; text-align: center; font-size: 13px; min-height: 30px; }
+        th { background: #f8fafc; color: var(--primary); }
+        
+        .time-col { width: 70px; font-weight: bold; background: #f8fafc; }
+        .morning-routine { background-color: var(--morning); }
+        .night-shift { background-color: var(--night); }
+        .blocked { background-color: var(--blocked-bg); color: var(--text-blocked); font-weight: bold; }
+
+        .editable { cursor: pointer; outline: none; }
+        .editable:focus { background: white; border: 2px solid var(--primary) !important; }
+
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn { padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 11px; transition: 0.2s; }
+        .btn-clear { background: #ef4444; color: white; }
+        .btn-copy { background: #059669; color: white; }
+        .btn-backup { background: #3b82f6; color: white; }
+        .btn:hover { opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+<div id="protectedContent">
+    <div class="container">
+        <div class="tabs">
+            <button class="tab-btn active" id="btn-fixa" onclick="switchTab('fixa')">Agenda Fixa</button>
+            <button class="tab-btn" id="btn-pers" onclick="switchTab('personalizada')">Agenda Personalizada</button>
+        </div>
+
+        <div class="toolbar">
+            <h2 id="agendaTitle">Agenda Fixa</h2>
+            <div class="btn-group">
+                <button class="btn btn-backup" onclick="exportarParaArquivo()">📥 Salvar Backup (Data/Hora)</button>
+                <button class="btn btn-backup" onclick="document.getElementById('importFile').click()">📤 Abrir Agenda (Arquivo)</button>
+                <input type="file" id="importFile" style="display:none" accept=".json" onchange="importarDeArquivo(event)">
+                
+                <button class="btn btn-copy" id="copyBtn" style="display:none" onclick="copyFromFixa()">Copiar da Fixa</button>
+                <button class="btn btn-clear" onclick="clearCurrentAgenda()">Limpar Aba</button>
+            </div>
+        </div>
+        
+        <table id="scheduleTable">
+            <thead>
+                <tr><th class="time-col">Hora</th><th>Segunda</th><th>Terça</th><th>Quarta</th><th>Quinta</th><th>Sexta</th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function checkAccess() {
+        const password = prompt("Digite a senha:");
+        if (password === "amor") {
+            document.getElementById('protectedContent').style.display = 'block';
+            generateTable();
+        } else {
+            alert("Senha incorreta!");
+            window.location.reload();
+        }
+    }
+
+    const days = ['seg', 'ter', 'qua', 'qui', 'sex'];
+    let currentTab = 'fixa';
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(tab === 'fixa' ? 'btn-fixa' : 'btn-pers').classList.add('active');
+        document.getElementById('agendaTitle').innerText = tab === 'fixa' ? "Agenda Fixa" : "Agenda Personalizada";
+        document.getElementById('copyBtn').style.display = tab === 'personalizada' ? 'block' : 'none';
+        generateTable();
+    }
+
+    // --- FUNÇÃO DE BACKUP COM DATA E HORA ---
+    function exportarParaArquivo() {
+        const agora = new Date();
+        const data = agora.toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const hora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(/:/g, 'h');
+        const nomeArquivo = `agenda_${data}_${hora}.json`;
+
+        const dados = JSON.stringify(localStorage);
+        const blob = new Blob([dados], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = nomeArquivo;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function importarDeArquivo(event) {
+        const arquivo = event.target.files[0];
+        if (!arquivo) return;
+        const leitor = new FileReader();
+        leitor.onload = function(e) {
+            try {
+                const dados = JSON.parse(e.target.result);
+                if (confirm("Isso irá substituir todos os dados atuais pelos do arquivo. Confirmar?")) {
+                    localStorage.clear();
+                    for (let chave in dados) { localStorage.setItem(chave, dados[chave]); }
+                    generateTable();
+                    alert("Agenda carregada com sucesso!");
+                }
+            } catch (err) { alert("Erro ao ler o arquivo."); }
+        };
+        leitor.readAsText(arquivo);
+    }
+
+    function generateTable() {
+        const tableBody = document.getElementById('tableBody');
+        tableBody.innerHTML = '';
+        let rowIndex = 0;
+
+        for (let h = 6; h <= 23; h++) {
+            for (let m of ['00', '30']) {
+                if (h === 23 && m === '30') break;
+                const time = `${h.toString().padStart(2, '0')}:${m}`;
+                const row = document.createElement('tr');
+                row.innerHTML = `<td class="time-col">${time}</td>`;
+
+                days.forEach((day, colIndex) => {
+                    const cellId = `${currentTab}-${day}-${time}`;
+                    const isMorning = (h >= 6 && h < 9);
+                    const isBlocked = (h === 12 || h === 13);
+                    const isNight = (h >= 22);
+
+                    let classes = 'editable';
+                    if (isMorning) classes += ' morning-routine';
+                    if (isNight) classes += ' night-shift';
+                    if (isBlocked) classes += ' blocked';
+
+                    row.innerHTML += `<td class="${classes}" 
+                                        id="${cellId}" 
+                                        contenteditable="true" 
+                                        data-row="${rowIndex}" 
+                                        data-col="${colIndex}"
+                                        oninput="saveData('${cellId}', this.innerText)"
+                                        onkeydown="handleNavigation(event)"></td>`;
+                });
+                tableBody.appendChild(row);
+                rowIndex++;
+            }
+        }
+        loadData();
+    }
+
+    function handleNavigation(e) {
+        const row = parseInt(e.target.dataset.row);
+        const col = parseInt(e.target.dataset.col);
+        let target;
+        if(e.key === "ArrowDown") target = document.querySelector(`[data-row="${row + 1}"][data-col="${col}"]`);
+        if(e.key === "ArrowUp") target = document.querySelector(`[data-row="${row - 1}"][data-col="${col}"]`);
+        if(e.key === "ArrowRight") target = document.querySelector(`[data-row="${row}"][data-col="${col + 1}"]`);
+        if(e.key === "ArrowLeft") target = document.querySelector(`[data-row="${row}"][data-col="${col - 1}"]`);
+        if (target) { e.preventDefault(); target.focus(); }
+    }
+
+    function copyFromFixa() {
+        if(confirm("Copiar dados da Agenda Fixa para a Personalizada?")) {
+            for (let h = 6; h <= 23; h++) {
+                for (let m of ['00', '30']) {
+                    const time = `${h.toString().padStart(2, '0')}:${m}`;
+                    days.forEach(day => {
+                        const val = localStorage.getItem(`fixa-${day}-${time}`);
+                        if (val) localStorage.setItem(`personalizada-${day}-${time}`, val);
+                    });
+                }
+            }
+            generateTable();
+        }
+    }
+
+    function saveData(id, val) { localStorage.setItem(id, val); }
+    function loadData() {
+        document.querySelectorAll('.editable').forEach(cell => {
+            const val = localStorage.getItem(cell.id);
+            if (val) cell.innerText = val;
+        });
+    }
+
+    function clearCurrentAgenda() {
+        if(confirm(`Limpar esta aba?`)) {
+            Object.keys(localStorage).forEach(k => { if(k.startsWith(currentTab)) localStorage.removeItem(k); });
+            generateTable();
+        }
+    }
+
+    checkAccess();
+
+// --- FUNÇÃO DE BACKUP COM DATA E HORA ---
+    function exportarParaArquivo() {
+        // Pega a data e hora atual
+        const agora = new Date();
+        const data = agora.toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const hora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).replace(/:/g, 'h');
+        
+        const nomeArquivo = `agenda_${data}_${hora}.json`;
+
+        const dados = JSON.stringify(localStorage);
+        const blob = new Blob([dados], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        
+        a.href = url;
+        a.download = nomeArquivo; // Aqui ele usa o nome com data e hora
+        a.click();
+        
+        // Limpa a URL da memória
+        URL.revokeObjectURL(url);
+    }
+
+</script>
+</body>
+</html>
